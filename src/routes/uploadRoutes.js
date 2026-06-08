@@ -1,10 +1,11 @@
 const express = require('express');
 const { uploadFile } = require('../controllers/uploadController');
 const protect = require('../middleware/authMiddleware');
-const upload = require('../middleware/uploadMiddleware');
+const { uploadSingle } = require('../middleware/uploadMiddleware');
 
 const router = express.Router();
 
-router.post('/', protect, upload.single('file'), uploadFile);
+// uploadSingle returns [requireCloudinaryOnServerless, upload.single(field)]
+router.post('/', protect, ...uploadSingle('file'), uploadFile);
 
 module.exports = router;
