@@ -1,17 +1,19 @@
+// uploadMiddleware.js
+// IMPORTANT: This file must have ZERO side effects at require() time.
+// No fs calls, no Cloudinary init, no multer storage creation — all deferred to request time.
+
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
-const { isCloudinaryEnabled, configureCloudinary } = require('../config/cloudinary');
 
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const ALLOWED_EXT = /jpeg|jpg|png|webp|pdf/;
 const ALLOWED_MIME = /jpeg|jpg|png|webp|pdf/;
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
-// Determine environment once at startup — NO filesystem side effects here
-const shouldUseCloudinary = process.env.USE_CLOUDINARY === 'true';
-const isVercel = process.env.VERCEL === '1' || process.env.VERCEL === 'true';
-const isProduction = process.env.NODE_ENV === 'production';
-const shouldUseLocalUploads = !shouldUseCloudinary && !isVercel && !isProduction;
+// Read env flags — pure reads, no side effects
+const shouldUseCloudinary = () => process.env.USE_CLOUDINARY === 'true';
+const isVercel = () => process.env.VERCEL === '1' || process.env.VERCEL === 'true';
+const isProduction = () => process.env.NODE_ENV === 'production';
+const shouldUseLocalUploads = () => !shouldUseCloudinary() && !isVercel() && !isProduction();
 
 const fileFilter = (req, file, cb) => {
   const ext = ALLOWED_EXT.test(path.extname(file.originalname).toLowerCase());
@@ -20,14 +22,13 @@ const fileFilter = (req, file, cb) => {
   else cb(new Error('Only JPG, JPEG, PNG, WEBP, and PDF files are allowed'));
 };
 
+// Called only when an actual upload request arrives on a local dev server
 const createLocalStorage = () => {
+  const fs = require('fs');
   const uploadDir = path.join(process.cwd(), 'uploads');
-  // Only create the folder at request time (inside diskStorage), never at module load
   return multer.diskStorage({
     destination: (req, file, cb) => {
-      if (!fs.existsSync(uploadDir)) {
-        fs.mkdirSync(uploadDir, { recursive: true });
-      }
+      if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
       cb(null, uploadDir);
     },
     filename: (req, file, cb) => {
@@ -37,13 +38,13 @@ const createLocalStorage = () => {
   });
 };
 
+// Called only when an actual upload request arrives in production with Cloudinary enabled
 const createCloudinaryStorage = () => {
-  configureCloudinary();
+  const { configureCloudinary, getCloudinary } = require('../config/cloudinary');
+  configureCloudinary(); // throws with clear message if env vars missing
   const { CloudinaryStorage } = require('multer-storage-cloudinary');
-  const cloudinary = require('../config/cloudinary').getCloudinary();
-
   return new CloudinaryStorage({
-    cloudinary,
+    cloudinary: getCloudinary(),
     params: async (req, file) => {
       const isPdf =
         file.mimetype === 'application/pdf' ||
@@ -58,45 +59,46 @@ const createCloudinaryStorage = () => {
   });
 };
 
-// Guard middleware: rejects upload requests on Vercel when Cloudinary is not configured
-const requireCloudinaryOnServerless = (req, res, next) => {
-  if ((isVercel || isProduction) && !shouldUseCloudinary) {
-    return res.status(500).json({
-      success: false,
-      message: 'File uploads require Cloudinary in production. Set USE_CLOUDINARY=true and provide Cloudinary credentials.',
-    });
-  }
-  next();
-};
+/**
+ * uploadSingle(fieldName) — returns an Express middleware array.
+ * Everything (storage creation, env checks, fs access) is deferred until a real
+ * upload request arrives. The module itself is completely side-effect-free.
+ */
+const uploadSingle = (fieldName) => [
+  // Step 1: guard — runs synchronously, no I/O
+  (req, res, next) => {
+    if ((isVercel() || isProduction()) && !shouldUseCloudinary()) {
+      return res.status(500).json({
+        success: false,
+        message:
+          'File uploads require Cloudinary in production. Set USE_CLOUDINARY=true and provide Cloudinary credentials.',
+      });
+    }
+    next();
+  },
 
-// Build the multer instance lazily — storage is chosen once, but NO fs calls happen at module load
-const buildUpload = () => {
-  if (shouldUseCloudinary) {
-    return multer({
-      storage: createCloudinaryStorage(),
-      limits: { fileSize: MAX_FILE_SIZE },
-      fileFilter,
-    });
-  }
+  // Step 2: build multer on-demand and process the file
+  (req, res, next) => {
+    let storage;
+    try {
+      if (shouldUseCloudinary()) {
+        storage = createCloudinaryStorage();
+      } else if (shouldUseLocalUploads()) {
+        storage = createLocalStorage();
+      } else {
+        // Fallback — guard above should have already blocked this path
+        return res.status(500).json({
+          success: false,
+          message: 'File uploads are not configured for this environment.',
+        });
+      }
+    } catch (err) {
+      return res.status(500).json({ success: false, message: err.message });
+    }
 
-  if (shouldUseLocalUploads) {
-    return multer({
-      storage: createLocalStorage(),
-      limits: { fileSize: MAX_FILE_SIZE },
-      fileFilter,
-    });
-  }
+    const upload = multer({ storage, limits: { fileSize: MAX_FILE_SIZE }, fileFilter });
+    upload.single(fieldName)(req, res, next);
+  },
+];
 
-  // Vercel / production without Cloudinary — return a no-op multer that never touches disk
-  // The requireCloudinaryOnServerless guard above will short-circuit before multer runs
-  return multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_FILE_SIZE }, fileFilter });
-};
-
-const upload = buildUpload();
-
-// Export a wrapped single-file handler that enforces the serverless guard first
-const uploadSingle = (fieldName) => [requireCloudinaryOnServerless, upload.single(fieldName)];
-
-module.exports = upload;
-module.exports.uploadSingle = uploadSingle;
-module.exports.shouldUseLocalUploads = shouldUseLocalUploads;
+module.exports = { uploadSingle, shouldUseLocalUploads };

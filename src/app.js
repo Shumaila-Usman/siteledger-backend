@@ -3,42 +3,25 @@ const express = require('express');
 const path = require('path');
 const cors = require('cors');
 
-const errorMiddleware = require('./middleware/errorMiddleware');
-const connectDB = require('./config/db');
-const { shouldUseLocalUploads } = require('./middleware/uploadMiddleware');
-
-const authRoutes = require('./routes/authRoutes');
-const projectRoutes = require('./routes/projectRoutes');
-const teamRoutes = require('./routes/teamRoutes');
-const categoryEntityRoutes = require('./routes/categoryEntityRoutes');
-const paymentRoutes = require('./routes/paymentRoutes');
-const dashboardRoutes = require('./routes/dashboardRoutes');
-const uploadRoutes = require('./routes/uploadRoutes');
-
 const app = express();
 
-// ── 1. Health & favicon — registered FIRST, no DB / uploads / auth required ──
-app.get('/health', (req, res) => {
-  res.json({ success: true, message: 'SiteLedger API is running' });
-});
-app.get('/api/health', (req, res) => {
-  res.json({ success: true, message: 'SiteLedger API is running' });
-});
-app.get('/favicon.ico', (req, res) => res.status(204).end());
-app.get('/favicon.png', (req, res) => res.status(204).end());
-
-// ── 2. Global middleware ──
-app.use(
-  cors({
-    origin: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-  })
-);
+// ── CORS & body parsing ────────────────────────────────────────────────────
+app.use(cors({
+  origin: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ── 3. Serverless-friendly DB connect for all API routes ──
+// ── Health & favicon (also in api/index.js for Vercel crash safety) ────────
+app.get('/health', (req, res) => res.json({ success: true, message: 'SiteLedger API is running' }));
+app.get('/api/health', (req, res) => res.json({ success: true, message: 'SiteLedger API is running' }));
+app.get('/favicon.ico', (req, res) => res.status(204).end());
+app.get('/favicon.png', (req, res) => res.status(204).end());
+
+// ── DB connect — per-request, serverless-friendly ──────────────────────────
+const connectDB = require('./config/db');
 app.use(async (req, res, next) => {
   try {
     await connectDB();
@@ -48,22 +31,24 @@ app.use(async (req, res, next) => {
   }
 });
 
-// ── 4. API routes ──
-app.use('/api/auth', authRoutes);
-app.use('/api/projects', projectRoutes);
-app.use('/api/projects', teamRoutes);
-app.use('/api/entities', categoryEntityRoutes);
-app.use('/api/payments', paymentRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/upload', uploadRoutes);
+// ── API routes ────────────────────────────────────────────────────────────
+app.use('/api/auth', require('./routes/authRoutes'));
+app.use('/api/projects', require('./routes/projectRoutes'));
+app.use('/api/projects', require('./routes/teamRoutes'));
+app.use('/api/entities', require('./routes/categoryEntityRoutes'));
+app.use('/api/payments', require('./routes/paymentRoutes'));
+app.use('/api/dashboard', require('./routes/dashboardRoutes'));
+app.use('/api/upload', require('./routes/uploadRoutes'));
 
-// ── 5. Static uploads — local development only (never on Vercel / production) ──
-if (shouldUseLocalUploads) {
+// ── Static uploads — local dev only ───────────────────────────────────────
+const isVercel = process.env.VERCEL === '1' || process.env.VERCEL === 'true';
+const isProduction = process.env.NODE_ENV === 'production';
+if (process.env.USE_CLOUDINARY !== 'true' && !isVercel && !isProduction) {
   app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 }
 
-// ── 6. Error handler ──
-app.use(errorMiddleware);
+// ── Error handler ─────────────────────────────────────────────────────────
+app.use(require('./middleware/errorMiddleware'));
 
 module.exports = app;
 
