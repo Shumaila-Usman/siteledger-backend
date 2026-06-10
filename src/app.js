@@ -36,6 +36,7 @@ app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/projects', require('./routes/projectRoutes'));
 app.use('/api/projects', require('./routes/teamRoutes'));
 app.use('/api/entities', require('./routes/categoryEntityRoutes'));
+app.use('/api/subcategories', require('./routes/subCategoryRoutes'));
 app.use('/api/payments', require('./routes/paymentRoutes'));
 app.use('/api/dashboard', require('./routes/dashboardRoutes'));
 app.use('/api/upload', require('./routes/uploadRoutes'));
