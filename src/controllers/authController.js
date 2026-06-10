@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const generateToken = require('../utils/generateToken');
 const seedDefaultCategories = require('../utils/seedDefaultCategories');
+const { sendPushNotification } = require('../utils/pushNotifications');
 
 const formatUser = (user) => ({
   _id: user._id,
@@ -13,13 +14,15 @@ const formatUser = (user) => ({
   currency: user.currency,
   companyName: user.companyName,
   role: user.role,
+  status: user.status,
+  accountType: user.accountType,
   biometricEnabled: user.biometricEnabled,
   createdAt: user.createdAt,
   updatedAt: user.updatedAt,
 });
 
 const signup = async (req, res) => {
-  const { name, email, phone, country, phoneCode, currency, password, companyName } = req.body;
+  const { name, email, phone, country, phoneCode, currency, password, companyName, accountType } = req.body;
 
   if (!name || !email || !phone || !country || !phoneCode || !currency || !password) {
     return res.status(400).json({ success: false, message: 'All required fields must be provided' });
@@ -40,15 +43,25 @@ const signup = async (req, res) => {
     currency,
     passwordHash,
     companyName,
+    accountType: accountType || 'user',
+    status: 'pending',  // Always pending until admin approves
+    role: 'viewer',
   });
 
-  // Seed default categories for new user
-  await seedDefaultCategories(user._id);
+  // Notify admin about new signup request
+  const admin = await User.findOne({ role: 'admin' });
+  if (admin?.pushToken) {
+    await sendPushNotification(
+      admin.pushToken,
+      '📋 New Account Request',
+      `${name} has requested an account (${accountType || 'user'}). Review in Admin Portal.`
+    );
+  }
 
   res.status(201).json({
     success: true,
-    message: 'Account created successfully',
-    data: { user: formatUser(user), token: generateToken(user._id) },
+    message: 'Account request submitted. Waiting for admin approval.',
+    data: { user: formatUser(user) },
   });
 };
 
@@ -67,6 +80,33 @@ const login = async (req, res) => {
     return res.status(401).json({ success: false, message: 'Invalid credentials' });
   }
 
+  // Admin always allowed
+  if (user.role === 'admin') {
+    return res.json({
+      success: true,
+      message: 'Login successful',
+      data: { user: formatUser(user), token: generateToken(user._id) },
+    });
+  }
+
+  // Block pending users
+  if (user.status === 'pending') {
+    return res.status(403).json({
+      success: false,
+      message: 'pending',
+      data: { user: formatUser(user) },
+    });
+  }
+
+  // Block rejected users
+  if (user.status === 'rejected') {
+    return res.status(403).json({
+      success: false,
+      message: 'rejected',
+      data: { user: formatUser(user) },
+    });
+  }
+
   // Seed default categories if user has none (handles existing users)
   await seedDefaultCategories(user._id);
 
@@ -82,7 +122,7 @@ const getMe = async (req, res) => {
 };
 
 const updateMe = async (req, res) => {
-  const allowed = ['name', 'phone', 'country', 'phoneCode', 'currency', 'companyName', 'biometricEnabled'];
+  const allowed = ['name', 'phone', 'country', 'phoneCode', 'currency', 'companyName', 'biometricEnabled', 'pushToken'];
   const updates = {};
   allowed.forEach((key) => {
     if (req.body[key] !== undefined) updates[key] = req.body[key];

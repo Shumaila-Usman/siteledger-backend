@@ -16,6 +16,17 @@ const userSchema = new mongoose.Schema(
       enum: ['admin', 'manager', 'expense_only', 'viewer'],
       default: 'viewer' 
     },
+    status: {
+      type: String,
+      enum: ['pending', 'active', 'rejected'],
+      default: 'pending',
+    },
+    accountType: {
+      type: String,
+      enum: ['client', 'user'],
+      default: 'user',
+    },
+    pushToken: { type: String, default: null },
     biometricEnabled: { type: Boolean, default: false },
   },
   { timestamps: true }

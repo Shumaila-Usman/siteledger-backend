@@ -1,6 +1,7 @@
 const express = require('express');
 const {
   getUsers, createUser, updateUserRole, deleteUser,
+  getPendingRequests, approveRequest, rejectRequest,
   getCategories, createCategory, updateCategory, deleteCategory,
   getSubCategories, createSubCategory, updateSubCategory, deleteSubCategory,
 } = require('../controllers/adminController');
@@ -14,6 +15,11 @@ router.get('/users', getUsers);
 router.post('/users', createUser);
 router.put('/users/:id/role', updateUserRole);
 router.delete('/users/:id', deleteUser);
+
+// Signup requests
+router.get('/requests', getPendingRequests);
+router.post('/requests/:id/approve', approveRequest);
+router.post('/requests/:id/reject', rejectRequest);
 
 // Global Categories
 router.get('/categories', getCategories);
