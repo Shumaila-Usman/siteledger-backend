@@ -7,8 +7,8 @@ const categoryEntitySchema = new mongoose.Schema(
     phone: { type: String, trim: true },
     category: {
       type: String,
-      enum: ['Contractor', 'Labour', 'Material', 'Drawing', 'Overhead', 'Other'],
       required: true,
+      trim: true,
     },
     subCategory: { type: String, trim: true },
     notes: { type: String },

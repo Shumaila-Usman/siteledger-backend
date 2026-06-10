@@ -5,8 +5,8 @@ const subCategorySchema = new mongoose.Schema(
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     category: {
       type: String,
-      enum: ['Contractor', 'Labour', 'Material', 'Drawing', 'Overhead', 'Other'],
       required: true,
+      trim: true,
     },
     name: { type: String, required: true, trim: true },
   },

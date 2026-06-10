@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const generateToken = require('../utils/generateToken');
+const seedDefaultCategories = require('../utils/seedDefaultCategories');
 
 const formatUser = (user) => ({
   _id: user._id,
@@ -41,6 +42,9 @@ const signup = async (req, res) => {
     companyName,
   });
 
+  // Seed default categories for new user
+  await seedDefaultCategories(user._id);
+
   res.status(201).json({
     success: true,
     message: 'Account created successfully',
@@ -62,6 +66,9 @@ const login = async (req, res) => {
   if (!user || !(await user.matchPassword(password))) {
     return res.status(401).json({ success: false, message: 'Invalid credentials' });
   }
+
+  // Seed default categories if user has none (handles existing users)
+  await seedDefaultCategories(user._id);
 
   res.json({
     success: true,
