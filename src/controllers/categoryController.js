@@ -1,9 +1,9 @@
 const Category = require('../models/Category');
 const SubCategory = require('../models/SubCategory');
 
-// GET /api/categories
+// GET /api/categories — returns global (admin) categories
 const getCategories = async (req, res) => {
-  const data = await Category.find({ userId: req.user._id }).sort({ name: 1 });
+  const data = await Category.find({ userId: null }).sort({ name: 1 });
   res.json({ success: true, message: 'Categories fetched', data });
 };
 

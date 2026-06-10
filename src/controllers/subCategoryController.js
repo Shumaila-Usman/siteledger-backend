@@ -1,8 +1,8 @@
 const SubCategory = require('../models/SubCategory');
 
-// GET /api/subcategories?category=Contractor
+// GET /api/subcategories?category=Contractor — returns global subcategories
 const getSubCategories = async (req, res) => {
-  const filter = { userId: req.user._id };
+  const filter = { userId: null };
   if (req.query.category) filter.category = req.query.category;
 
   const data = await SubCategory.find(filter).sort({ category: 1, name: 1 });

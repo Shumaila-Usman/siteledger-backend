@@ -24,4 +24,31 @@ const protect = async (req, res, next) => {
   }
 };
 
-module.exports = protect;
+/** Only admin can access */
+const adminOnly = (req, res, next) => {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ success: false, message: 'Admin access required' });
+  }
+  next();
+};
+
+/** Admin or manager */
+const managerOrAbove = (req, res, next) => {
+  if (!['admin', 'manager'].includes(req.user?.role)) {
+    return res.status(403).json({ success: false, message: 'Manager access required' });
+  }
+  next();
+};
+
+/** Can write expenses/payments — admin, manager, expense_only */
+const canAddExpense = (req, res, next) => {
+  if (!['admin', 'manager', 'expense_only'].includes(req.user?.role)) {
+    return res.status(403).json({ success: false, message: 'You do not have permission to add expenses' });
+  }
+  next();
+};
+
+module.exports = { protect, adminOnly, managerOrAbove, canAddExpense };
+
+// Default export for backward compat
+module.exports.default = protect;

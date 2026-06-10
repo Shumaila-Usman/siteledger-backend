@@ -11,7 +11,11 @@ const userSchema = new mongoose.Schema(
     currency: { type: String, required: true },
     passwordHash: { type: String, required: true },
     companyName: { type: String, trim: true },
-    role: { type: String, default: 'owner' },
+    role: { 
+      type: String, 
+      enum: ['admin', 'manager', 'expense_only', 'viewer'],
+      default: 'viewer' 
+    },
     biometricEnabled: { type: Boolean, default: false },
   },
   { timestamps: true }

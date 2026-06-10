@@ -1,6 +1,6 @@
 const express = require('express');
 const { getTeam, addMember, updateMember, deleteMember } = require('../controllers/teamController');
-const protect = require('../middleware/authMiddleware');
+const { protect } = require('../middleware/authMiddleware');
 
 const router = express.Router({ mergeParams: true });
 
