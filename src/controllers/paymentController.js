@@ -98,6 +98,8 @@ const createPayment = async (req, res) => {
     ...req.body,
     ...computed,
     userId: req.user._id,
+    createdByName: req.user.name,
+    createdByEmail: req.user.email,
   });
 
   const populated = await Payment.findById(payment._id)

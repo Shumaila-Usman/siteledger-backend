@@ -9,10 +9,7 @@ const paymentSchema = new mongoose.Schema(
       enum: ['incoming_client_payment', 'outgoing_payment'],
       required: true,
     },
-    category: {
-      type: String,
-      enum: ['Contractor', 'Labour', 'Material', 'Drawing', 'Overhead', 'Other'],
-    },
+    category: { type: String, trim: true },
     categoryEntityId: { type: mongoose.Schema.Types.ObjectId, ref: 'CategoryEntity' },
     clientName: { type: String, trim: true },
     title: { type: String, trim: true },
@@ -37,6 +34,8 @@ const paymentSchema = new mongoose.Schema(
     receiptMimeType: { type: String },
     receiptPublicId: { type: String },
     notes: { type: String },
+    createdByName: { type: String, trim: true },
+    createdByEmail: { type: String, trim: true },
   },
   { timestamps: true }
 );
