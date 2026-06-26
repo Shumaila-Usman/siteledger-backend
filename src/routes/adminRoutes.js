@@ -5,6 +5,11 @@ const {
   getCategories, createCategory, updateCategory, deleteCategory,
   getSubCategories, createSubCategory, updateSubCategory, deleteSubCategory,
 } = require('../controllers/adminController');
+const {
+  getPendingTeamMemberRequests,
+  approveTeamMemberRequest,
+  rejectTeamMemberRequest,
+} = require('../controllers/teamMemberApprovalController');
 const { protect, adminOnly } = require('../middleware/authMiddleware');
 
 const router = express.Router();
@@ -20,6 +25,11 @@ router.delete('/users/:id', deleteUser);
 router.get('/requests', getPendingRequests);
 router.post('/requests/:id/approve', approveRequest);
 router.post('/requests/:id/reject', rejectRequest);
+
+// Team member approval requests
+router.get('/team-member-requests', getPendingTeamMemberRequests);
+router.post('/team-member-requests/:id/approve', approveTeamMemberRequest);
+router.post('/team-member-requests/:id/reject', rejectTeamMemberRequest);
 
 // Global Categories
 router.get('/categories', getCategories);

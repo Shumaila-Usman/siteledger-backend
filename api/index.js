@@ -5,6 +5,11 @@
 require('dotenv').config();
 const express = require('express');
 
+// Prevent unhandled promise rejections from crashing the serverless function
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled Rejection:', reason);
+});
+
 const handler = express();
 
 // ── Guaranteed-up health routes ────────────────────────────────────────────

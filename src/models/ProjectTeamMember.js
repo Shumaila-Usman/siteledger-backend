@@ -19,8 +19,15 @@ const projectTeamMemberSchema = new mongoose.Schema(
       required: true,
     },
 
+    accessLevel: {
+      type: String,
+      enum: ['client_view', 'add_expense', 'can_payment', 'full_access'],
+      default: 'client_view',
+    },
+
     // Permissions
     canApprove: { type: Boolean, default: false },
+    canAddExpense: { type: Boolean, default: false },
     canAddPayment: { type: Boolean, default: false },
     canViewReports: { type: Boolean, default: true },
 

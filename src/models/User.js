@@ -27,6 +27,7 @@ const userSchema = new mongoose.Schema(
       default: 'user',
     },
     pushToken: { type: String, default: null },
+    profilePicture: { type: String, default: null },
     biometricEnabled: { type: Boolean, default: false },
   },
   { timestamps: true }

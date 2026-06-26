@@ -2,7 +2,7 @@ const Payment = require('../models/Payment');
 const Project = require('../models/Project');
 const CategoryEntity = require('../models/CategoryEntity');
 const { computePaymentFields } = require('../utils/paymentUtils');
-
+const { addVendorExpense, recordVendorPayment, getVendorLedger } = require('../utils/vendorLedger');
 const buildFilter = (userId, query) => {
   const filter = { userId };
   if (query.projectId) filter.projectId = query.projectId;
@@ -42,9 +42,9 @@ const validatePaymentBody = async (body, userId) => {
 
   if (body.paymentType === 'outgoing_payment') {
     if (!body.category) return 'Category is required for outgoing payments';
-    if (!body.categoryEntityId) return 'Entity is required for outgoing payments';
+    if (!body.categoryEntityId) return 'Team member is required for outgoing payments';
     const entity = await CategoryEntity.findOne({ _id: body.categoryEntityId, userId });
-    if (!entity) return 'Entity not found';
+    if (!entity) return 'Team member not found';
   }
 
   if (body.totalAmount == null || isNaN(Number(body.totalAmount))) {
@@ -60,6 +60,34 @@ const validatePaymentBody = async (body, userId) => {
     return e.message;
   }
 
+  return null;
+};
+
+const validateLedgerBody = async (body, userId) => {
+  if (!body.projectId) return 'Project is required';
+  const project = await Project.findOne({ _id: body.projectId, userId });
+  if (!project) return 'Project not found';
+  if (!body.category) return 'Category is required';
+  if (!body.categoryEntityId) return 'Team member is required';
+  const entity = await CategoryEntity.findOne({ _id: body.categoryEntityId, userId });
+  if (!entity) return 'Team member not found';
+
+  const mode = body.ledgerMode;
+  if (mode === 'add_expense') {
+    if (body.expenseAmount == null || Number(body.expenseAmount) <= 0) {
+      return 'Expense amount must be greater than zero';
+    }
+  } else if (mode === 'record_payment') {
+    if (body.payAmount == null || Number(body.payAmount) <= 0) {
+      return 'Payment amount must be greater than zero';
+    }
+  } else if (mode === 'expense_and_pay') {
+    const expenseAmount = Number(body.expenseAmount) || 0;
+    const payAmount = Number(body.payAmount) || 0;
+    if (expenseAmount <= 0 && payAmount <= 0) {
+      return 'Expense or payment amount is required';
+    }
+  }
   return null;
 };
 
@@ -88,6 +116,102 @@ const pickUpdateFields = (body) => {
 };
 
 const createPayment = async (req, res) => {
+  const { ledgerMode } = req.body;
+
+  if (ledgerMode === 'add_expense' || ledgerMode === 'record_payment' || ledgerMode === 'expense_and_pay') {
+    const validationError = await validateLedgerBody(req.body, req.user._id);
+    if (validationError) {
+      return res.status(400).json({ success: false, message: validationError });
+    }
+
+    try {
+      const metadata = {
+        title: req.body.title?.trim() || undefined,
+        paymentMethod: req.body.paymentMethod,
+        paymentDate: req.body.paymentDate,
+        paidBy: req.body.paidBy?.trim() || undefined,
+        paidTo: req.body.paidTo?.trim() || undefined,
+        approvedBy: req.body.approvedBy?.trim() || undefined,
+        notes: req.body.notes?.trim() || undefined,
+        receiptUrl: req.body.receiptUrl,
+        receiptFileName: req.body.receiptFileName,
+        receiptMimeType: req.body.receiptMimeType,
+        receiptPublicId: req.body.receiptPublicId,
+        createdByName: req.user.name,
+        createdByEmail: req.user.email,
+      };
+
+      let payment;
+      if (ledgerMode === 'add_expense') {
+        payment = await addVendorExpense({
+          userId: req.user._id,
+          projectId: req.body.projectId,
+          categoryEntityId: req.body.categoryEntityId,
+          category: req.body.category,
+          expenseAmount: req.body.expenseAmount,
+          metadata,
+        });
+      } else if (ledgerMode === 'record_payment') {
+        payment = await recordVendorPayment({
+          userId: req.user._id,
+          projectId: req.body.projectId,
+          categoryEntityId: req.body.categoryEntityId,
+          category: req.body.category,
+          payAmount: req.body.payAmount,
+          metadata,
+        });
+      } else {
+        const expenseAmount = Number(req.body.expenseAmount) || 0;
+        const payAmount = Number(req.body.payAmount) || 0;
+        if (expenseAmount > 0) {
+          await addVendorExpense({
+            userId: req.user._id,
+            projectId: req.body.projectId,
+            categoryEntityId: req.body.categoryEntityId,
+            category: req.body.category,
+            expenseAmount,
+            metadata,
+          });
+        }
+        if (payAmount > 0) {
+          payment = await recordVendorPayment({
+            userId: req.user._id,
+            projectId: req.body.projectId,
+            categoryEntityId: req.body.categoryEntityId,
+            category: req.body.category,
+            payAmount,
+            metadata,
+          });
+        } else {
+          payment = await getVendorLedger(
+            req.user._id,
+            req.body.projectId,
+            req.body.categoryEntityId
+          );
+        }
+      }
+
+      if (!payment) {
+        return res.status(400).json({ success: false, message: 'Nothing to record' });
+      }
+
+      const populated = await Payment.findById(payment._id)
+        .populate('projectId', 'projectName clientName')
+        .populate('categoryEntityId', 'name category');
+
+      const message =
+        ledgerMode === 'add_expense'
+          ? 'Expense recorded'
+          : ledgerMode === 'record_payment'
+            ? 'Payment recorded'
+            : 'Expense and payment recorded';
+
+      return res.status(201).json({ success: true, message, data: populated });
+    } catch (e) {
+      return res.status(e.statusCode || 400).json({ success: false, message: e.message });
+    }
+  }
+
   const validationError = await validatePaymentBody(req.body, req.user._id);
   if (validationError) {
     return res.status(400).json({ success: false, message: validationError });

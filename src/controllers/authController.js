@@ -17,6 +17,7 @@ const formatUser = (user) => ({
   status: user.status,
   accountType: user.accountType,
   biometricEnabled: user.biometricEnabled,
+  profilePicture: user.profilePicture,
   createdAt: user.createdAt,
   updatedAt: user.updatedAt,
 });
@@ -44,24 +45,17 @@ const signup = async (req, res) => {
     passwordHash,
     companyName,
     accountType: accountType || 'user',
-    status: 'pending',  // Always pending until admin approves
+    status: 'active',  // Direct signup — no approval needed
     role: 'viewer',
   });
 
-  // Notify admin about new signup request
-  const admin = await User.findOne({ role: 'admin' });
-  if (admin?.pushToken) {
-    await sendPushNotification(
-      admin.pushToken,
-      '📋 New Account Request',
-      `${name} has requested an account (${accountType || 'user'}). Review in Admin Portal.`
-    );
-  }
+  // Seed default categories
+  await seedDefaultCategories(user._id);
 
   res.status(201).json({
     success: true,
-    message: 'Account request submitted. Waiting for admin approval.',
-    data: { user: formatUser(user) },
+    message: 'Account created successfully',
+    data: { user: formatUser(user), token: generateToken(user._id) },
   });
 };
 
@@ -122,7 +116,7 @@ const getMe = async (req, res) => {
 };
 
 const updateMe = async (req, res) => {
-  const allowed = ['name', 'phone', 'country', 'phoneCode', 'currency', 'companyName', 'biometricEnabled', 'pushToken'];
+  const allowed = ['name', 'phone', 'country', 'phoneCode', 'currency', 'companyName', 'biometricEnabled', 'pushToken', 'profilePicture'];
   const updates = {};
   allowed.forEach((key) => {
     if (req.body[key] !== undefined) updates[key] = req.body[key];

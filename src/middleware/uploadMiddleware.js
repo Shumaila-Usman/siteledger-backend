@@ -6,8 +6,8 @@ const multer = require('multer');
 const path = require('path');
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const ALLOWED_EXT = /jpeg|jpg|png|webp|pdf/;
-const ALLOWED_MIME = /jpeg|jpg|png|webp|pdf/;
+const ALLOWED_EXT = /jpeg|jpg|png|webp|pdf|heic|heif/;
+const ALLOWED_MIME = /jpeg|jpg|png|webp|pdf|heic|heif/;
 
 // Read env flags — pure reads, no side effects
 const shouldUseCloudinary = () => process.env.USE_CLOUDINARY === 'true';
@@ -86,7 +86,6 @@ const uploadSingle = (fieldName) => [
       } else if (shouldUseLocalUploads()) {
         storage = createLocalStorage();
       } else {
-        // Fallback — guard above should have already blocked this path
         return res.status(500).json({
           success: false,
           message: 'File uploads are not configured for this environment.',
@@ -97,7 +96,17 @@ const uploadSingle = (fieldName) => [
     }
 
     const upload = multer({ storage, limits: { fileSize: MAX_FILE_SIZE }, fileFilter });
-    upload.single(fieldName)(req, res, next);
+    // Wrap in try-catch to prevent unhandled promise rejections crashing the server
+    try {
+      upload.single(fieldName)(req, res, (err) => {
+        if (err) {
+          return res.status(500).json({ success: false, message: err.message || 'Upload failed' });
+        }
+        next();
+      });
+    } catch (err) {
+      return res.status(500).json({ success: false, message: 'Upload failed. Check Cloudinary credentials.' });
+    }
   },
 ];
 

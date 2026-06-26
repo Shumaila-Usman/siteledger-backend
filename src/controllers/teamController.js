@@ -2,7 +2,7 @@ const ProjectTeamMember = require('../models/ProjectTeamMember');
 const Project = require('../models/Project');
 const User = require('../models/User');
 const { sendPushNotification } = require('../utils/pushNotifications');
-
+const { TEAM_ACCESS_LEVELS, isValidAccessLevel } = require('../constants/teamAccess');
 // GET /api/projects/:projectId/team
 const getTeam = async (req, res) => {
   const project = await Project.findOne({ _id: req.params.projectId, userId: req.user._id });
@@ -22,68 +22,62 @@ const addMember = async (req, res) => {
     return res.status(404).json({ success: false, message: 'Project not found' });
   }
 
-  const { name, phone, role, canApprove, canAddPayment, canViewReports, invitedEmail } = req.body;
+  const { accessLevel, invitedEmail } = req.body;
 
-  if (!name?.trim() || !role) {
-    return res.status(400).json({ success: false, message: 'Name and role are required' });
+  if (!invitedEmail?.trim()) {
+    return res.status(400).json({ success: false, message: 'Email is required' });
+  }
+  if (!isValidAccessLevel(accessLevel)) {
+    return res.status(400).json({ success: false, message: 'Access level is required' });
   }
 
-  let invitedUserId = null;
-  let inviteStatus = 'direct';
+  const access = TEAM_ACCESS_LEVELS[accessLevel];
+  const normalizedEmail = invitedEmail.trim().toLowerCase();
 
-  if (invitedEmail?.trim()) {
-    // Find the invited user by email
-    const invitedUser = await User.findOne({ email: invitedEmail.trim().toLowerCase() });
-
-    if (!invitedUser) {
-      return res.status(404).json({
-        success: false,
-        message: `No account found for ${invitedEmail}. Ask them to sign up first.`,
-      });
-    }
-
-    // Check already in team
-    const alreadyMember = await ProjectTeamMember.findOne({
-      projectId: req.params.projectId,
-      invitedEmail: invitedEmail.trim().toLowerCase(),
+  const invitedUser = await User.findOne({ email: normalizedEmail });
+  if (!invitedUser) {
+    return res.status(404).json({
+      success: false,
+      message: `No account found for ${invitedEmail}. Ask them to sign up first.`,
     });
-    if (alreadyMember) {
-      return res.status(400).json({ success: false, message: 'This user is already in the team' });
-    }
+  }
 
-    invitedUserId = invitedUser._id;
-    inviteStatus = 'pending';
+  const alreadyMember = await ProjectTeamMember.findOne({
+    projectId: req.params.projectId,
+    invitedEmail: normalizedEmail,
+  });
+  if (alreadyMember) {
+    return res.status(400).json({ success: false, message: 'This user is already in the team' });
+  }
 
-    // Send push notification to invited user
-    if (invitedUser.pushToken) {
-      await sendPushNotification(
-        invitedUser.pushToken,
-        '👥 Project Invite',
-        `${req.user.name} has invited you to join "${project.projectName}" as ${role}. Open SiteLedger to accept.`,
-        { type: 'project_invite', projectId: req.params.projectId }
-      );
-    }
+  if (invitedUser.pushToken) {
+    await sendPushNotification(
+      invitedUser.pushToken,
+      '👥 Project Invite',
+      `${req.user.name} has invited you to join "${project.projectName}" with ${access.label.toLowerCase()}. Open SiteLedger to accept.`,
+      { type: 'project_invite', projectId: req.params.projectId }
+    );
   }
 
   const member = await ProjectTeamMember.create({
     userId: req.user._id,
     projectId: req.params.projectId,
-    invitedUserId,
-    invitedEmail: invitedEmail?.trim().toLowerCase() || undefined,
-    name: name.trim(),
-    phone: phone?.trim() || undefined,
-    role,
-    canApprove: canApprove ?? false,
-    canAddPayment: canAddPayment ?? false,
-    canViewReports: canViewReports ?? true,
-    inviteStatus,
+    invitedUserId: invitedUser._id,
+    invitedEmail: normalizedEmail,
+    name: invitedUser.name,
+    phone: invitedUser.phone || undefined,
+    role: access.role,
+    accessLevel,
+    canApprove: access.canApprove,
+    canAddExpense: access.canAddExpense,
+    canAddPayment: access.canAddPayment,
+    canViewReports: access.canViewReports,
+    inviteStatus: 'pending',
   });
 
   res.status(201).json({
     success: true,
-    message: inviteStatus === 'pending'
-      ? 'Invite sent successfully'
-      : 'Team member added',
+    message: 'Invite sent successfully',
     data: member,
   });
 };

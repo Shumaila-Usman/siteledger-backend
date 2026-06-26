@@ -1,13 +1,16 @@
 const Payment = require('../models/Payment');
 const CategoryEntity = require('../models/CategoryEntity');
 
-const aggregateEntityTotals = async (userId, entityIds) => {
+const aggregateEntityTotals = async (userId, entityIds, projectId) => {
   if (!entityIds.length) return {};
-  const payments = await Payment.find({
+  const paymentFilter = {
     userId,
     categoryEntityId: { $in: entityIds },
     paymentType: 'outgoing_payment',
-  });
+  };
+  if (projectId) paymentFilter.projectId = projectId;
+
+  const payments = await Payment.find(paymentFilter);
 
   const map = {};
   for (const p of payments) {
