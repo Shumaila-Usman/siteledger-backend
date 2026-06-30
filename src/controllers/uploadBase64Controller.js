@@ -13,8 +13,14 @@ const isAllowedUpload = (fileName, mimeType) => {
 };
 
 const uploadToCloudinary = async (buffer, fileName, mimeType) => {
-  configureCloudinary();
-  const cloudinary = getCloudinary();
+  const cloudinary = require('cloudinary').v2;
+  // Always configure directly from env — serverless functions can lose module state
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+    secure: true,
+  });
   const isPdf = mimeType.includes('pdf') || fileName.toLowerCase().endsWith('.pdf');
   const base64 = buffer.toString('base64');
   const dataUri = `data:${mimeType};base64,${base64}`;

@@ -1,13 +1,16 @@
 const isCloudinaryEnabled = () => process.env.USE_CLOUDINARY === 'true';
 
 const getCloudinary = () => {
-  // Lazy load — local dev (USE_CLOUDINARY=false) never needs this package at startup
-  // eslint-disable-next-line global-require
   return require('cloudinary').v2;
 };
 
+let _configured = false;
+
 const configureCloudinary = () => {
   if (!isCloudinaryEnabled()) return false;
+
+  // Already configured — skip to avoid overwriting with potentially stale values
+  if (_configured) return true;
 
   const { CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET } = process.env;
   if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) {
@@ -24,6 +27,7 @@ const configureCloudinary = () => {
     secure: true,
   });
 
+  _configured = true;
   return true;
 };
 
