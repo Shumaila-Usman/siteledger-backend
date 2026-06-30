@@ -15,10 +15,25 @@ const isAllowedUpload = (fileName, mimeType) => {
 const uploadToCloudinary = async (buffer, fileName, mimeType) => {
   const cloudinary = require('cloudinary').v2;
   // Always configure directly from env — serverless functions can lose module state
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  const apiKey = process.env.CLOUDINARY_API_KEY;
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
+
+  console.log('[uploadBase64] Cloudinary config check:', {
+    cloud_name: cloudName ? `${cloudName.slice(0,4)}...` : 'MISSING',
+    api_key: apiKey ? `${apiKey.slice(0,4)}...` : 'MISSING',
+    api_secret: apiSecret ? '✓SET' : 'MISSING',
+    USE_CLOUDINARY: process.env.USE_CLOUDINARY,
+  });
+
+  if (!cloudName || !apiKey || !apiSecret) {
+    throw new Error(`Cloudinary env vars missing on server: cloud_name=${!!cloudName} api_key=${!!apiKey} api_secret=${!!apiSecret}`);
+  }
+
   cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
+    cloud_name: cloudName,
+    api_key: apiKey,
+    api_secret: apiSecret,
     secure: true,
   });
   const isPdf = mimeType.includes('pdf') || fileName.toLowerCase().endsWith('.pdf');
@@ -101,10 +116,10 @@ const uploadBase64 = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('uploadBase64 error:', err);
+    console.error('uploadBase64 error:', JSON.stringify(err));
     const message =
       err?.http_code === 401 || err?.http_code === 403
-        ? 'Cloudinary rejected the upload. Check API credentials on the server.'
+        ? `Cloudinary auth failed (${err.http_code}): ${err.message || 'Check API credentials'}`
         : err.message || 'Upload failed';
     return res.status(500).json({ success: false, message });
   }
