@@ -22,6 +22,33 @@ handler.get('/api/health', (req, res) =>
 handler.get('/favicon.ico', (req, res) => res.status(204).end());
 handler.get('/favicon.png', (req, res) => res.status(204).end());
 
+// ── Temporary: debug Cloudinary env vars on Vercel ────────────────────────
+handler.get('/api/debug-cloudinary', (req, res) => {
+  res.json({
+    USE_CLOUDINARY: process.env.USE_CLOUDINARY,
+    CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME ? '✓ SET' : '✗ MISSING',
+    CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY ? '✓ SET' : '✗ MISSING',
+    CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET ? '✓ SET' : '✗ MISSING',
+    NODE_ENV: process.env.NODE_ENV,
+    VERCEL: process.env.VERCEL,
+  });
+});
+
+handler.get('/api/test-cloudinary', async (req, res) => {
+  try {
+    const cloudinary = require('cloudinary').v2;
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+    });
+    const result = await cloudinary.api.ping();
+    res.json({ success: true, message: 'Cloudinary connected', result });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message, http_code: err.http_code });
+  }
+});
+
 // ── Load the main app — crash here does NOT affect health routes above ─────
 try {
   const app = require('../src/app');
