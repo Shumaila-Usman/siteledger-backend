@@ -1,8 +1,10 @@
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const User = require('../models/User');
 const generateToken = require('../utils/generateToken');
 const seedDefaultCategories = require('../utils/seedDefaultCategories');
 const { sendPushNotification } = require('../utils/pushNotifications');
+const { sendOtpEmail } = require('../utils/emailService');
 
 const formatUser = (user) => ({
   _id: user._id,
@@ -83,25 +85,7 @@ const login = async (req, res) => {
     });
   }
 
-  // Block pending users
-  if (user.status === 'pending') {
-    return res.status(403).json({
-      success: false,
-      message: 'pending',
-      data: { user: formatUser(user) },
-    });
-  }
-
-  // Block rejected users
-  if (user.status === 'rejected') {
-    return res.status(403).json({
-      success: false,
-      message: 'rejected',
-      data: { user: formatUser(user) },
-    });
-  }
-
-  // Seed default categories if user has none (handles existing users)
+  // Seed default categories if user has none
   await seedDefaultCategories(user._id);
 
   res.json({
@@ -126,4 +110,93 @@ const updateMe = async (req, res) => {
   res.json({ success: true, message: 'Profile updated', data: formatUser(user) });
 };
 
-module.exports = { signup, login, getMe, updateMe };
+// ── Request OTP ──────────────────────────────────────────────────────────────
+const requestPasswordResetOtp = async (req, res) => {
+  const { email } = req.body;
+  if (!email?.trim()) {
+    return res.status(400).json({ success: false, message: 'Email is required' });
+  }
+
+  const user = await User.findOne({ email: email.toLowerCase().trim() });
+  // Always return success to prevent email enumeration
+  if (!user) {
+    return res.json({ success: true, message: 'If that email exists, an OTP has been sent.' });
+  }
+
+  // Generate 6-digit OTP
+  const otp = String(Math.floor(100000 + Math.random() * 900000));
+  const expiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+  user.passwordResetOtp = otp;
+  user.passwordResetOtpExpiry = expiry;
+  await user.save();
+
+  try {
+    await sendOtpEmail(user.email, otp);
+  } catch (err) {
+    console.error('Email send failed:', err.message);
+    return res.status(500).json({ success: false, message: 'Failed to send OTP email. Check Gmail SMTP config.' });
+  }
+
+  res.json({ success: true, message: 'OTP sent to your email.' });
+};
+
+// ── Verify OTP ────────────────────────────────────────────────────────────────
+const verifyPasswordResetOtp = async (req, res) => {
+  const { email, otp } = req.body;
+  if (!email || !otp) {
+    return res.status(400).json({ success: false, message: 'Email and OTP are required' });
+  }
+
+  const user = await User.findOne({ email: email.toLowerCase().trim() });
+  if (!user || !user.passwordResetOtp || !user.passwordResetOtpExpiry) {
+    return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
+  }
+
+  if (user.passwordResetOtpExpiry < new Date()) {
+    user.passwordResetOtp = null;
+    user.passwordResetOtpExpiry = null;
+    await user.save();
+    return res.status(400).json({ success: false, message: 'OTP has expired. Request a new one.' });
+  }
+
+  if (user.passwordResetOtp !== otp.trim()) {
+    return res.status(400).json({ success: false, message: 'Incorrect OTP. Please try again.' });
+  }
+
+  res.json({ success: true, message: 'OTP verified.' });
+};
+
+// ── Reset Password ────────────────────────────────────────────────────────────
+const resetPasswordWithOtp = async (req, res) => {
+  const { email, otp, newPassword } = req.body;
+  if (!email || !otp || !newPassword) {
+    return res.status(400).json({ success: false, message: 'Email, OTP and new password are required' });
+  }
+  if (newPassword.length < 6) {
+    return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+  }
+
+  const user = await User.findOne({ email: email.toLowerCase().trim() });
+  if (!user || !user.passwordResetOtp || !user.passwordResetOtpExpiry) {
+    return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
+  }
+  if (user.passwordResetOtpExpiry < new Date()) {
+    user.passwordResetOtp = null;
+    user.passwordResetOtpExpiry = null;
+    await user.save();
+    return res.status(400).json({ success: false, message: 'OTP has expired. Request a new one.' });
+  }
+  if (user.passwordResetOtp !== otp.trim()) {
+    return res.status(400).json({ success: false, message: 'Incorrect OTP.' });
+  }
+
+  user.passwordHash = await bcrypt.hash(newPassword, 10);
+  user.passwordResetOtp = null;
+  user.passwordResetOtpExpiry = null;
+  await user.save();
+
+  res.json({ success: true, message: 'Password reset successfully. You can now log in.' });
+};
+
+module.exports = { signup, login, getMe, updateMe, requestPasswordResetOtp, verifyPasswordResetOtp, resetPasswordWithOtp };

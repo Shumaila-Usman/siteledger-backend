@@ -1,6 +1,6 @@
 const Category = require('../models/Category');
 
-const DEFAULT_CATEGORIES = ['Contractor', 'Labour', 'Material', 'Drawing', 'Overhead', 'Other'];
+const DEFAULT_CATEGORIES = ['Contractor', 'Material', 'Labour', 'Overhead', 'Project Services'];
 
 /**
  * Seeds default categories for a user if they have none yet.

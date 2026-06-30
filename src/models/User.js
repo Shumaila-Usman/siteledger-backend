@@ -29,6 +29,8 @@ const userSchema = new mongoose.Schema(
     pushToken: { type: String, default: null },
     profilePicture: { type: String, default: null },
     biometricEnabled: { type: Boolean, default: false },
+    passwordResetOtp: { type: String, default: null },
+    passwordResetOtpExpiry: { type: Date, default: null },
   },
   { timestamps: true }
 );

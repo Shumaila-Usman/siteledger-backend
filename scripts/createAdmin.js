@@ -11,7 +11,7 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/sitele
 const ADMIN_EMAIL = 'admin@siteledger.app';
 const ADMIN_PASSWORD = 'SiteLedger@Admin1';
 
-const DEFAULT_CATEGORIES = ['Contractor', 'Labour', 'Material', 'Drawing', 'Overhead', 'Other'];
+const DEFAULT_CATEGORIES = ['Contractor', 'Material', 'Labour', 'Overhead', 'Project Services'];
 
 const run = async () => {
   await mongoose.connect(MONGODB_URI);
