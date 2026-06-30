@@ -14,28 +14,16 @@ const isAllowedUpload = (fileName, mimeType) => {
 
 const uploadToCloudinary = async (buffer, fileName, mimeType) => {
   const cloudinary = require('cloudinary').v2;
-  // Always configure directly from env — serverless functions can lose module state
   const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
   const apiKey = process.env.CLOUDINARY_API_KEY;
   const apiSecret = process.env.CLOUDINARY_API_SECRET;
 
-  console.log('[uploadBase64] Cloudinary config check:', {
-    cloud_name: cloudName ? `${cloudName.slice(0,4)}...` : 'MISSING',
-    api_key: apiKey ? `${apiKey.slice(0,4)}...` : 'MISSING',
-    api_secret: apiSecret ? '✓SET' : 'MISSING',
-    USE_CLOUDINARY: process.env.USE_CLOUDINARY,
-  });
-
   if (!cloudName || !apiKey || !apiSecret) {
-    throw new Error(`Cloudinary env vars missing on server: cloud_name=${!!cloudName} api_key=${!!apiKey} api_secret=${!!apiSecret}`);
+    throw new Error(`Cloudinary env vars missing: cloud_name=${!!cloudName} api_key=${!!apiKey} api_secret=${!!apiSecret}`);
   }
 
-  cloudinary.config({
-    cloud_name: cloudName,
-    api_key: apiKey,
-    api_secret: apiSecret,
-    secure: true,
-  });
+  cloudinary.config({ cloud_name: cloudName, api_key: apiKey, api_secret: apiSecret, secure: true });
+
   const isPdf = mimeType.includes('pdf') || fileName.toLowerCase().endsWith('.pdf');
   const base64 = buffer.toString('base64');
   const dataUri = `data:${mimeType};base64,${base64}`;
@@ -81,46 +69,65 @@ const uploadBase64 = async (req, res) => {
       return res.status(400).json({ success: false, message: 'File size exceeds 10MB limit' });
     }
 
+    // Try Cloudinary first if enabled
     if (isCloudinaryEnabled()) {
-      const result = await uploadToCloudinary(buffer, safeName, mime);
+      try {
+        const result = await uploadToCloudinary(buffer, safeName, mime);
+        return res.json({
+          success: true,
+          message: 'File uploaded successfully',
+          data: {
+            url: result.secure_url,
+            fileName: safeName,
+            mimeType: mime,
+            publicId: result.public_id,
+          },
+        });
+      } catch (cloudErr) {
+        console.error('Cloudinary failed, falling back to base64 storage:', cloudErr.message);
+        // Fall through to base64 storage below
+      }
+    }
+
+    // Fallback: store base64 data URI directly in MongoDB
+    // Works on any hosting — no file system or Cloudinary needed
+    const isPdf = mime.includes('pdf') || safeName.toLowerCase().endsWith('.pdf');
+    if (!isPdf) {
+      const dataUri = `data:${mime};base64,${base64}`;
       return res.json({
         success: true,
-        message: 'File uploaded successfully',
+        message: 'File stored successfully',
         data: {
-          url: result.secure_url,
+          url: dataUri,
           fileName: safeName,
           mimeType: mime,
-          publicId: result.public_id,
         },
       });
     }
 
+    // For local dev with disk access
     const isVercel = process.env.VERCEL === '1' || process.env.VERCEL === 'true';
     const isProduction = process.env.NODE_ENV === 'production';
-    if (isVercel || isProduction) {
-      return res.status(503).json({
-        success: false,
-        message:
-          'File uploads require Cloudinary in production. Set USE_CLOUDINARY=true and Cloudinary credentials on the server.',
+    if (!isVercel && !isProduction) {
+      const storedName = saveLocalFile(buffer, safeName);
+      return res.json({
+        success: true,
+        message: 'File uploaded successfully',
+        data: { url: `/uploads/${storedName}`, fileName: safeName, mimeType: mime },
       });
     }
 
-    const storedName = saveLocalFile(buffer, safeName);
+    // PDF on production without Cloudinary — store as base64
+    const dataUri = `data:${mime};base64,${base64}`;
     return res.json({
       success: true,
-      message: 'File uploaded successfully',
-      data: {
-        url: `/uploads/${storedName}`,
-        fileName: safeName,
-        mimeType: mime,
-      },
+      message: 'File stored successfully',
+      data: { url: dataUri, fileName: safeName, mimeType: mime },
     });
+
   } catch (err) {
     console.error('uploadBase64 error:', JSON.stringify(err));
-    const message =
-      err?.http_code === 401 || err?.http_code === 403
-        ? `Cloudinary auth failed (${err.http_code}): ${err.message || 'Check API credentials'}`
-        : err.message || 'Upload failed';
+    const message = err.message || 'Upload failed';
     return res.status(500).json({ success: false, message });
   }
 };
