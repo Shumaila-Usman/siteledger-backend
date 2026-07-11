@@ -13,9 +13,12 @@ const paymentSchema = new mongoose.Schema(
     categoryEntityId: { type: mongoose.Schema.Types.ObjectId, ref: 'CategoryEntity' },
     clientName: { type: String, trim: true },
     title: { type: String, trim: true },
+    projectName: { type: String, trim: true },
     totalAmount: { type: Number, required: true, default: 0 },
     paidAmount: { type: Number, required: true, default: 0 },
     remainingAmount: { type: Number, default: 0 },
+    advanceAmount: { type: Number, default: 0 },
+    lastPaymentAdvance: { type: Number, default: 0 },
     paymentMethod: {
       type: String,
       enum: ['Cash', 'Bank Transfer', 'Raast', 'Easypaisa', 'JazzCash', 'Cheque', 'Card', 'Other'],
@@ -42,6 +45,7 @@ const paymentSchema = new mongoose.Schema(
 
 paymentSchema.pre('save', function (next) {
   this.remainingAmount = Math.max(0, this.totalAmount - this.paidAmount);
+  this.advanceAmount = Math.max(0, this.paidAmount - this.totalAmount);
   if (this.paidAmount <= 0) this.status = 'Pending';
   else if (this.paidAmount >= this.totalAmount) this.status = 'Paid';
   else this.status = 'Partial';

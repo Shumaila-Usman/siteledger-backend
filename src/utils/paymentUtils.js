@@ -11,7 +11,20 @@ const computePaymentFields = (totalAmount, paidAmount) => {
   if (paid <= 0) status = 'Pending';
   else if (paid >= total) status = 'Paid';
   else status = 'Partial';
-  return { totalAmount: total, paidAmount: paid, remainingAmount, status };
+  return { totalAmount: total, paidAmount: paid, remainingAmount, advanceAmount: 0, status };
 };
 
-module.exports = { computePaymentFields };
+/** Vendor ledger allows paid > total (advance/credit on account). */
+const computeLedgerFields = (totalAmount, paidAmount) => {
+  const total = Number(totalAmount) || 0;
+  const paid = Number(paidAmount) || 0;
+  const remainingAmount = Math.max(0, total - paid);
+  const advanceAmount = Math.max(0, paid - total);
+  let status = 'Pending';
+  if (paid <= 0) status = 'Pending';
+  else if (paid >= total) status = 'Paid';
+  else status = 'Partial';
+  return { totalAmount: total, paidAmount: paid, remainingAmount, advanceAmount, status };
+};
+
+module.exports = { computePaymentFields, computeLedgerFields };

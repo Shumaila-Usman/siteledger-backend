@@ -10,8 +10,8 @@ const calculateProjectSummary = async (projectId, userId) => {
   const outgoing = payments.filter((p) => p.paymentType === 'outgoing_payment');
 
   const clientPaymentsReceived = incoming.reduce((sum, p) => sum + (p.paidAmount || 0), 0);
-  const totalExpenses = outgoing.reduce((sum, p) => sum + (p.paidAmount || 0), 0);
-  const outgoingPaid = totalExpenses;
+  const totalExpenses = outgoing.reduce((sum, p) => sum + (p.totalAmount || 0), 0);
+  const outgoingPaid = outgoing.reduce((sum, p) => sum + (p.paidAmount || 0), 0);
   const pendingFromClient = Math.max(0, (project.estimatedBudget || 0) - clientPaymentsReceived);
   const pendingToOutgoing = outgoing.reduce((sum, p) => sum + (p.remainingAmount || 0), 0);
   const totalBudget = project.estimatedBudget || 0;
@@ -40,8 +40,9 @@ const calculateDashboardSummary = async (userId) => {
   const outgoing = payments.filter((p) => p.paymentType === 'outgoing_payment');
 
   const clientPaymentsReceived = incoming.reduce((sum, p) => sum + (p.paidAmount || 0), 0);
-  const totalExpense = outgoing.reduce((sum, p) => sum + (p.paidAmount || 0), 0);
-  const paidPayments = totalExpense;
+  const outgoingPaid = outgoing.reduce((sum, p) => sum + (p.paidAmount || 0), 0);
+  const totalExpense = outgoing.reduce((sum, p) => sum + (p.totalAmount || 0), 0);
+  const paidPayments = outgoingPaid;
   const pendingToOutgoing = outgoing.reduce((sum, p) => sum + (p.remainingAmount || 0), 0);
 
   let pendingFromClients = 0;

@@ -18,7 +18,8 @@ const getPayments = async (req, res) => {
     .populate('projectId', 'projectName clientName currency')
     .populate('categoryEntityId', 'name category phone subCategory')
     .sort({ paymentDate: -1 });
-  res.json({ success: true, message: 'Payments fetched', data: payments });
+  const data = await attachProjectDetailsMany(payments, req.user._id);
+  res.json({ success: true, message: 'Payments fetched', data });
 };
 
 const getPayment = async (req, res) => {
@@ -28,7 +29,8 @@ const getPayment = async (req, res) => {
   if (!payment) {
     return res.status(404).json({ success: false, message: 'Payment not found' });
   }
-  res.json({ success: true, message: 'Payment fetched', data: payment });
+  const data = await attachProjectDetails(payment, req.user._id);
+  res.json({ success: true, message: 'Payment fetched', data });
 };
 
 const validatePaymentBody = async (body, userId) => {
@@ -74,8 +76,10 @@ const validateLedgerBody = async (body, userId) => {
 
   const mode = body.ledgerMode;
   if (mode === 'add_expense') {
-    if (body.expenseAmount == null || Number(body.expenseAmount) <= 0) {
-      return 'Expense amount must be greater than zero';
+    const expenseAmount = Number(body.expenseAmount) || 0;
+    const expenseReturn = Number(body.expenseReturn) || 0;
+    if (expenseAmount <= 0 && expenseReturn <= 0) {
+      return 'Expense or return amount is required';
     }
   } else if (mode === 'record_payment') {
     if (body.payAmount == null || Number(body.payAmount) <= 0) {
@@ -83,9 +87,10 @@ const validateLedgerBody = async (body, userId) => {
     }
   } else if (mode === 'expense_and_pay') {
     const expenseAmount = Number(body.expenseAmount) || 0;
+    const expenseReturn = Number(body.expenseReturn) || 0;
     const payAmount = Number(body.payAmount) || 0;
-    if (expenseAmount <= 0 && payAmount <= 0) {
-      return 'Expense or payment amount is required';
+    if (expenseAmount <= 0 && expenseReturn <= 0 && payAmount <= 0) {
+      return 'Expense, return, or payment amount is required';
     }
   }
   return null;
@@ -115,6 +120,107 @@ const pickUpdateFields = (body) => {
   return update;
 };
 
+const getProjectIdValue = (projectRef) => {
+  if (!projectRef) return null;
+  if (typeof projectRef === 'object' && projectRef._id) return projectRef._id;
+  return projectRef;
+};
+
+const attachProjectDetails = async (paymentDoc, userId) => {
+  const data = paymentDoc.toObject ? paymentDoc.toObject() : { ...paymentDoc };
+  if (data.projectName?.trim()) return data;
+
+  const populatedName =
+    typeof data.projectId === 'object' && data.projectId?.projectName
+      ? data.projectId.projectName
+      : '';
+  if (populatedName) {
+    data.projectName = populatedName;
+    return data;
+  }
+
+  const pid = getProjectIdValue(data.projectId);
+  if (!pid) return data;
+
+  const project = await Project.findOne({ _id: pid, userId }).select(
+    'projectName clientName currency estimatedBudget'
+  );
+  if (!project) return data;
+
+  data.projectName = project.projectName;
+  if (data._id && !paymentDoc.projectName?.trim()) {
+    Payment.updateOne({ _id: data._id }, { projectName: project.projectName }).catch(() => {});
+  }
+  data.projectId = {
+    _id: project._id,
+    projectName: project.projectName,
+    clientName: project.clientName,
+    currency: project.currency,
+    estimatedBudget: project.estimatedBudget,
+  };
+  return data;
+};
+
+const attachProjectDetailsMany = async (paymentDocs, userId) => {
+  const ids = [
+    ...new Set(
+      paymentDocs
+        .map((doc) => {
+          const raw = doc.toObject ? doc.toObject() : doc;
+          if (raw.projectName?.trim()) return null;
+          return getProjectIdValue(raw.projectId);
+        })
+        .filter(Boolean)
+        .map(String)
+    ),
+  ];
+
+  const projects = ids.length
+    ? await Project.find({ _id: { $in: ids }, userId }).select(
+        'projectName clientName currency estimatedBudget'
+      )
+    : [];
+  const projectMap = new Map(projects.map((p) => [String(p._id), p]));
+
+  return Promise.all(
+    paymentDocs.map(async (doc) => {
+      const data = doc.toObject ? doc.toObject() : { ...doc };
+      if (data.projectName?.trim()) return data;
+
+      const populatedName =
+        typeof data.projectId === 'object' && data.projectId?.projectName
+          ? data.projectId.projectName
+          : '';
+      if (populatedName) {
+        data.projectName = populatedName;
+        return data;
+      }
+
+      const pid = getProjectIdValue(data.projectId);
+      const project = pid ? projectMap.get(String(pid)) : null;
+      if (!project) return data;
+
+      data.projectName = project.projectName;
+      if (data._id && !doc.projectName?.trim()) {
+        Payment.updateOne({ _id: data._id }, { projectName: project.projectName }).catch(() => {});
+      }
+      data.projectId = {
+        _id: project._id,
+        projectName: project.projectName,
+        clientName: project.clientName,
+        currency: project.currency,
+        estimatedBudget: project.estimatedBudget,
+      };
+      return data;
+    })
+  );
+};
+
+const resolveProjectNameForBody = async (projectId, userId) => {
+  const project = await Project.findOne({ _id: projectId, userId }).select('projectName');
+  return project?.projectName;
+};
+
 const createPayment = async (req, res) => {
   const { ledgerMode } = req.body;
 
@@ -125,8 +231,10 @@ const createPayment = async (req, res) => {
     }
 
     try {
+      const projectName = await resolveProjectNameForBody(req.body.projectId, req.user._id);
       const metadata = {
         title: req.body.title?.trim() || undefined,
+        projectName: projectName || undefined,
         paymentMethod: req.body.paymentMethod,
         paymentDate: req.body.paymentDate,
         paidBy: req.body.paidBy?.trim() || undefined,
@@ -149,6 +257,7 @@ const createPayment = async (req, res) => {
           categoryEntityId: req.body.categoryEntityId,
           category: req.body.category,
           expenseAmount: req.body.expenseAmount,
+          expenseReturn: req.body.expenseReturn,
           metadata,
         });
       } else if (ledgerMode === 'record_payment') {
@@ -162,14 +271,16 @@ const createPayment = async (req, res) => {
         });
       } else {
         const expenseAmount = Number(req.body.expenseAmount) || 0;
+        const expenseReturn = Number(req.body.expenseReturn) || 0;
         const payAmount = Number(req.body.payAmount) || 0;
-        if (expenseAmount > 0) {
+        if (expenseAmount > 0 || expenseReturn > 0) {
           await addVendorExpense({
             userId: req.user._id,
             projectId: req.body.projectId,
             categoryEntityId: req.body.categoryEntityId,
             category: req.body.category,
             expenseAmount,
+            expenseReturn,
             metadata,
           });
         }
@@ -198,6 +309,7 @@ const createPayment = async (req, res) => {
       const populated = await Payment.findById(payment._id)
         .populate('projectId', 'projectName clientName')
         .populate('categoryEntityId', 'name category');
+      const data = await attachProjectDetails(populated, req.user._id);
 
       const message =
         ledgerMode === 'add_expense'
@@ -206,7 +318,7 @@ const createPayment = async (req, res) => {
             ? 'Payment recorded'
             : 'Expense and payment recorded';
 
-      return res.status(201).json({ success: true, message, data: populated });
+      return res.status(201).json({ success: true, message, data });
     } catch (e) {
       return res.status(e.statusCode || 400).json({ success: false, message: e.message });
     }
@@ -218,19 +330,36 @@ const createPayment = async (req, res) => {
   }
 
   const computed = computePaymentFields(req.body.totalAmount, req.body.paidAmount);
+  const projectName = await resolveProjectNameForBody(req.body.projectId, req.user._id);
   const payment = await Payment.create({
     ...req.body,
     ...computed,
+    projectName: projectName || undefined,
     userId: req.user._id,
     createdByName: req.user.name,
     createdByEmail: req.user.email,
   });
 
+  const amountReturn = Number(req.body.amountReturn) || 0;
+  if (req.body.paymentType === 'incoming_client_payment' && amountReturn > 0) {
+    const project = await Project.findOne({ _id: req.body.projectId, userId: req.user._id }).select(
+      'estimatedBudget'
+    );
+    if (project) {
+      const nextBudget = Math.max(0, (project.estimatedBudget || 0) - amountReturn);
+      await Project.updateOne(
+        { _id: project._id, userId: req.user._id },
+        { $set: { estimatedBudget: nextBudget } }
+      );
+    }
+  }
+
   const populated = await Payment.findById(payment._id)
     .populate('projectId', 'projectName clientName')
     .populate('categoryEntityId', 'name category');
+  const data = await attachProjectDetails(populated, req.user._id);
 
-  res.status(201).json({ success: true, message: 'Payment created', data: populated });
+  res.status(201).json({ success: true, message: 'Payment created', data });
 };
 
 const updatePayment = async (req, res) => {
